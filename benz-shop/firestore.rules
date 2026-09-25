@@ -1,0 +1,163 @@
+rules_version = '2';
+
+// =============================================================
+//  กฎความปลอดภัยฐานข้อมูล (Firestore Security Rules)
+//  คัดลอกทั้งไฟล์ไปวางใน Firebase Console > Firestore > Rules
+//  ** แก้อีเมลเจ้าของร้านในบรรทัด ownerEmail() ก่อนกด Publish **
+// =============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== เปลี่ยนเป็นอีเมลเจ้าของร้าน (ตัวพิมพ์เล็กทั้งหมด) =====
+    function ownerEmail() { return 'bent74045@gmail.com'; }
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email is string;
+    }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function staffPath() {
+      return /databases/$(database)/documents/staff/$(myEmail());
+    }
+    // เจ้าของร้าน: อีเมลตรงกับ ownerEmail() หรือถูกตั้งเป็น owner ในหน้า "พนักงาน"
+    function isOwner() {
+      return signedIn() && (myEmail() == ownerEmail()
+        || (exists(staffPath()) && get(staffPath()).data.role == 'owner'));
+    }
+    // พนักงานทุกระดับ (รวมเจ้าของร้าน)
+    function isStaff() {
+      return signedIn() && (myEmail() == ownerEmail() || exists(staffPath()));
+    }
+
+    function settingsPath() { return /databases/$(database)/documents/settings/shop; }
+    function orderingOpen() {
+      return !exists(settingsPath())
+        || get(settingsPath()).data.get('orderingOpen', true) != false;
+    }
+
+    // ร้านยอมให้สั่งก่อนจ่ายทีหลังไหม (หรือยังไม่ได้ตั้งค่าบัญชีรับโอน)
+    function payLaterAllowed() {
+      return !exists(settingsPath())
+        || get(settingsPath()).data.get('payLater', false) == true
+        || (get(settingsPath()).data.get('bankAccount', '') == ''
+            && get(settingsPath()).data.get('payQr', '') == '');
+    }
+    function slipPath(orderId) { return /databases/$(database)/documents/slips/$(orderId); }
+    function orderPath(orderId) { return /databases/$(database)/documents/orders/$(orderId); }
+
+    // ตรวจออเดอร์ใหม่จากลูกค้า (ลูกค้าไม่ต้องล็อกอิน)
+    function validNewOrder(orderId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['customerName', 'phone', 'deliveryDate', 'deliveryPoint',
+                               'paymentStatus', 'paymentMethod', 'slipAt', 'source',
+                               'items', 'itemCount', 'total',
+                               'status', 'seq', 'orderNo', 'dateKey', 'createdAt',
+                               'updatedAt', 'stockDeducted', 'revenueCounted', 'note'])
+        && d.keys().hasAll(['customerName', 'deliveryDate', 'deliveryPoint', 'items', 'total',
+                            'status', 'seq', 'orderNo', 'dateKey', 'createdAt'])
+        && d.customerName is string
+        && d.customerName.size() > 0 && d.customerName.size() <= 60
+        && d.items is list && d.items.size() > 0 && d.items.size() <= 50
+        && d.total is number && d.total >= 0 && d.total <= 100000
+        && d.status == 'pending'
+        && d.createdAt == request.time
+        && d.deliveryPoint is string
+        && d.deliveryPoint.size() > 0 && d.deliveryPoint.size() <= 80
+        && d.get('phone', '') is string && d.get('phone', '').size() <= 20
+        && d.dateKey is string && d.dateKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.deliveryDate is string && d.deliveryDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.deliveryDate >= d.dateKey
+        && d.seq is int
+        && getAfter(/databases/$(database)/documents/counters/$(d.deliveryDate)).data.n == d.seq
+        && d.get('stockDeducted', false) == false
+        && d.get('revenueCounted', false) == false
+        && d.get('source', 'web') == 'web'
+        && ((d.paymentStatus == 'slip' && d.paymentMethod == 'transfer' && existsAfter(slipPath(orderId)))
+            || (d.paymentStatus == 'unpaid' && d.paymentMethod == 'later' && payLaterAllowed()))
+        && orderingOpen();
+    }
+
+    // ลูกค้าแนบสลิปทีหลัง (เปลี่ยนได้เฉพาะข้อมูลการจ่าย จาก "ยังไม่จ่าย/รอตรวจ" เป็น "รอตรวจ")
+    function validSlipUpdate(orderId) {
+      return resource.data.get('paymentStatus', '') in ['unpaid', 'slip']
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['paymentStatus', 'paymentMethod', 'slipAt', 'updatedAt'])
+        && request.resource.data.paymentStatus == 'slip'
+        && request.resource.data.paymentMethod == 'transfer'
+        && existsAfter(slipPath(orderId));
+    }
+
+    // ---------- ข้อมูลร้าน / เมนู (ทุกคนอ่านได้) ----------
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+    match /categories/{id} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+    match /products/{id} {
+      allow read: if true;
+      allow create, delete: if isOwner();
+      // พนักงานเปิด/ปิด "ของหมด" ได้อย่างเดียว
+      allow update: if isOwner()
+        || (isStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active']));
+    }
+
+    // ---------- เลขที่ออเดอร์ (นับแยกตามวันส่ง) ----------
+    match /counters/{dateKey} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if request.resource.data.keys().hasOnly(['n']) && request.resource.data.n == 1;
+      allow update: if request.resource.data.keys().hasOnly(['n'])
+        && request.resource.data.n == resource.data.n + 1;
+      allow delete: if isOwner();
+    }
+
+    // ---------- ออเดอร์ ----------
+    match /orders/{orderId} {
+      allow get: if true;           // ลูกค้าติดตามสถานะด้วยรหัสออเดอร์ (สุ่ม เดาไม่ได้)
+      allow list: if isStaff();     // ดูรายการออเดอร์ทั้งหมดได้เฉพาะพนักงาน
+      allow create: if isStaff() || validNewOrder(orderId);   // พนักงานเพิ่มออเดอร์เองได้
+      allow update: if isStaff() || validSlipUpdate(orderId);
+      allow delete: if isOwner();
+    }
+
+    // ---------- สลิปโอนเงิน (ลูกค้าส่งได้ แต่ดูได้เฉพาะพนักงาน) ----------
+    match /slips/{orderId} {
+      allow read, delete: if isStaff();
+      allow create, update: if request.resource.data.keys().hasOnly(['image', 'createdAt'])
+        && request.resource.data.image is string
+        && request.resource.data.image.size() < 1000000
+        && request.resource.data.createdAt == request.time
+        && (isStaff() || getAfter(orderPath(orderId)).data.paymentStatus == 'slip');
+    }
+
+    // ---------- สรุปยอดขายรายวัน (ตามวันส่ง) ----------
+    match /daily/{dateKey} {
+      allow read: if isOwner();
+      allow write: if isStaff();
+    }
+
+    // ---------- สต็อกวัตถุดิบ ----------
+    match /inventory/{id} {
+      allow read, update: if isStaff();
+      allow create, delete: if isOwner();
+    }
+    match /inventoryTx/{id} {
+      allow read, create: if isStaff();
+      allow update, delete: if false;
+    }
+
+    // ---------- รายจ่าย (เจ้าของร้านเท่านั้น) ----------
+    match /expenses/{id} {
+      allow read, write: if isOwner();
+    }
+
+    // ---------- รายชื่อพนักงาน ----------
+    match /staff/{email} {
+      allow get: if signedIn() && (myEmail() == email || isOwner());
+      allow list, write: if isOwner();
+    }
+  }
+}

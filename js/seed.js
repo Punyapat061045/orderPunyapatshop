@@ -20,7 +20,7 @@ export const SEED_INVENTORY = [
 
 export const SEED_PRODUCTS = [
   {
-    id: "p-suki-roll", name: "สุกี้โรล", categoryId: "cat-savory", description: "สุกี้ห่อสาหร่าย เลือกโปรตีนและน้ำจิ้มได้",
+    id: "p-suki-roll", name: "สุกี้โรล", categoryId: "cat-savory", description: "สุกี้ห่อสาหร่าย เลือกโปรตีน (อกไก่/หมูเด้ง) และน้ำจิ้มได้",
     price: 60, unit: "กล่อง", image: "", active: true, sort: 1,
     recipe: [{ invId: "inv-seaweed", qty: 1 }, { invId: "inv-tofu", qty: 1 }, { invId: "inv-glassnoodle", qty: 20 }],
     optionGroups: [
@@ -36,11 +36,11 @@ export const SEED_PRODUCTS = [
     ],
   },
   {
-    id: "p-greek-yogurt", name: "กรีกโยเกิร์ตเปล่า", categoryId: "cat-dessert", description: "1 สกู้ป 60 กรัม",
+    id: "p-greek-yogurt", name: "กรีกโยเกิร์ตเปล่า", categoryId: "cat-dessert", description: "กรีกโยเกิร์ตรสธรรมชาติ 1 สกู้ป 60 กรัม",
     price: 39, unit: "สกู้ป", image: "", active: true, sort: 10, recipe: [], optionGroups: [],
   },
-  { id: "p-banoffee-pie", name: "Banoffee Greek Pie", categoryId: "cat-dessert", description: "", price: 89, unit: "ชิ้น", image: "", active: true, sort: 11, recipe: [], optionGroups: [] },
-  { id: "p-banana-biscoff-pie", name: "Banana Biscoff Pie", categoryId: "cat-dessert", description: "", price: 89, unit: "ชิ้น", image: "", active: true, sort: 12, recipe: [], optionGroups: [] },
-  { id: "p-biscoff-pie", name: "Biscoff Pie", categoryId: "cat-dessert", description: "", price: 79, unit: "ชิ้น", image: "", active: true, sort: 13, recipe: [], optionGroups: [] },
-  { id: "p-oreo-pie", name: "Oreo Greek Pie", categoryId: "cat-dessert", description: "", price: 69, unit: "ชิ้น", image: "", active: true, sort: 14, recipe: [], optionGroups: [] },
+  { id: "p-banoffee-pie", name: "Banoffee Greek Pie", categoryId: "cat-dessert", description: "กรีกโยเกิร์ตพายสไตล์บานอฟฟี่ กล้วยกับท็อฟฟี่", price: 89, unit: "ชิ้น", image: "", active: true, sort: 11, recipe: [], optionGroups: [] },
+  { id: "p-banana-biscoff-pie", name: "Banana Biscoff Pie", categoryId: "cat-dessert", description: "กรีกโยเกิร์ตพายกล้วยกับบิสกอฟ", price: 89, unit: "ชิ้น", image: "", active: true, sort: 12, recipe: [], optionGroups: [] },
+  { id: "p-biscoff-pie", name: "Biscoff Pie", categoryId: "cat-dessert", description: "กรีกโยเกิร์ตพายบิสกอฟ", price: 79, unit: "ชิ้น", image: "", active: true, sort: 13, recipe: [], optionGroups: [] },
+  { id: "p-oreo-pie", name: "Oreo Greek Pie", categoryId: "cat-dessert", description: "กรีกโยเกิร์ตพายโอรีโอ้", price: 69, unit: "ชิ้น", image: "", active: true, sort: 14, recipe: [], optionGroups: [] },
 ];

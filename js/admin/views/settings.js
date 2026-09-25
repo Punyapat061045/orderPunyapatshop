@@ -220,6 +220,23 @@ function addStaff() {
   };
 }
 
+/** เพิ่มเมนู/หมวด/วัตถุดิบเริ่มต้นเฉพาะที่ยังไม่มี (ไม่ทับของเดิม) */
+export async function addMissingSeed() {
+  const haveP = new Set(A.products.map((p) => p.id)), haveC = new Set(A.categories.map((c) => c.id)), haveI = new Set(A.inventory.map((i) => i.id));
+  const cats = SEED_CATEGORIES.filter((c) => !haveC.has(c.id)), prods = SEED_PRODUCTS.filter((p) => !haveP.has(p.id)), invs = SEED_INVENTORY.filter((i) => !haveI.has(i.id));
+  if (!cats.length && !prods.length && !invs.length) return toast("มีเมนูเริ่มต้นครบแล้ว", "ok");
+  const ok = await confirmDialog(`เพิ่มเมนูที่ยังไม่มี ${prods.length} เมนู${prods.length ? ` (${prods.map((p) => p.name).join(", ")})` : ""}${cats.length ? `, หมวด ${cats.length}` : ""}${invs.length ? `, วัตถุดิบ ${invs.length}` : ""}? เมนูเดิมจะไม่ถูกแก้`, { okText: "เพิ่มเลย" });
+  if (!ok) return;
+  try {
+    const b = writeBatch(db);
+    for (const c of cats) { const { id, ...d } = c; b.set(doc(db, "categories", id), d); }
+    for (const i of invs) { const { id, ...d } = i; b.set(doc(db, "inventory", id), { ...d, updatedAt: serverTimestamp() }); }
+    for (const p of prods) { const { id, ...d } = p; b.set(doc(db, "products", id), { ...d, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }); }
+    await b.commit();
+    toast("เพิ่มเมนูแล้ว", "ok");
+  } catch (e) { console.error(e); toast("เพิ่มไม่สำเร็จ", "bad"); }
+}
+
 export async function openSeed() {
   const ok = await confirmDialog("สร้างเมนูเริ่มต้น 6 เมนู (สุกี้โรล, กรีกโยเกิร์ตเปล่า, กรีกพาย 4 แบบ), หมวดหมู่ 2 หมวด และวัตถุดิบ 8 รายการ (สต็อกเริ่มที่ 0)?", { okText: "สร้างเลย" });
   if (!ok) return;

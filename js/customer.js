@@ -111,9 +111,9 @@ function render() {
   if (!isConfigured) return;
   if (S.step === 5) return renderTrack();
   if (!S.ready.settings || !S.ready.cats || !S.ready.prods) { view.innerHTML = `<div class="spinner"></div>`; return; }
-  if (S.step === 1) renderName();
-  else if (S.step === 2) renderMenu();
-  else if (S.step === 3) renderSummary();
+  if (S.step === 1) renderMenu();
+  else if (S.step === 2) renderSummary();
+  else if (S.step === 3) renderName();
   else if (S.step === 4) renderPayment();
   renderCartBar();
 }
@@ -132,8 +132,8 @@ function renderName() {
   view.innerHTML = `
     <section class="card welcome">
       <div class="stack" style="gap:4px">
-        <h2>สวัสดีค่ะ ยินดีต้อนรับ</h2>
-        <p class="muted">สั่งล่วงหน้า แล้วร้านนำไปส่งให้ถึงที่ค่ะ</p>
+        <h2>ข้อมูลการจัดส่ง</h2>
+        <p class="muted">บอกชื่อ วันที่อยากรับ และที่ส่ง ร้านจะนำไปส่งให้ถึงที่ค่ะ</p>
       </div>
       <label class="field">ชื่อลูกค้า *
         <input class="input" id="nameIn" maxlength="40" autocomplete="nickname" placeholder="เช่น มิ้นท์" value="${esc(S.name)}">
@@ -153,7 +153,8 @@ function renderName() {
         <input class="input" id="pointIn" maxlength="80" placeholder="เช่น ฝ่ายบุคคล อาคาร B ชั้น 5" value="${esc(custom ? S.point : "")}" ${points.length && !(custom && S.point) ? "hidden" : ""}>
       </div>
       <p class="small" id="nameErr" style="color:var(--danger)" hidden></p>
-      <button class="btn primary lg block" id="toMenu">เลือกเมนู</button>
+      <button class="btn primary lg block" id="toMenu">ไปชำระเงิน</button>
+      <button class="btn ghost sm" id="backCart2" style="justify-self:center">กลับไปแก้ตะกร้า</button>
     </section>`;
   const inp = $("#nameIn"), pin = $("#pointIn"), err = $("#nameErr");
   let pointChoice = custom ? (S.point ? "__other" : "") : S.point;
@@ -177,9 +178,10 @@ function renderName() {
     if (msg) { err.textContent = msg; err.hidden = false; if (!v) { inp.classList.add("invalid"); inp.focus(); } return; }
     S.name = v; S.phone = $("#phoneIn").value.trim(); S.point = point;
     store.set("benz.name", v); store.set("benz.phone", S.phone); store.set("benz.point", point);
-    setStep(2);
+    setStep(4);
   };
   $("#toMenu").addEventListener("click", go);
+  $("#backCart2").onclick = () => setStep(2);
   inp.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   inp.addEventListener("input", () => { inp.classList.remove("invalid"); err.hidden = true; });
   pin.addEventListener("input", () => { err.hidden = true; });
@@ -228,10 +230,7 @@ function renderMenu() {
   let i = 0;
   view.innerHTML = `
     ${st.orderingOpen === false ? `<div class="closed-banner">ตอนนี้ร้านปิดรับออเดอร์ชั่วคราว ดูเมนูได้แต่ยังสั่งไม่ได้นะคะ</div>` : ""}
-    <div class="row between" style="margin-bottom:8px">
-      <p class="muted small"><b style="color:var(--ink)">${esc(S.name)}</b> · ส่ง ${esc(fmtDelivery(S.deliveryDate))} · ${esc(S.point)}</p>
-      <button class="btn ghost sm" id="editName">แก้ไข</button>
-    </div>
+    <p class="muted" style="margin-bottom:12px">เลือกเมนูใส่ตะกร้าได้เลยค่ะ สั่งล่วงหน้า ร้านนำไปส่งให้ถึงที่</p>
     ${recent.length ? `<div class="reorder">${recent.map((h) => `
       <div class="reorder-item">
         <div class="grow"><b>สั่งซ้ำ #${esc(h.orderNo)}</b> <span class="muted">· ${esc(fmtDate(new Date(h.createdAt)))}</span><br>
@@ -249,7 +248,6 @@ function renderMenu() {
       : `<div class="card empty">${ICON.bowl}<p>ยังไม่มีเมนูในตอนนี้</p></div>`}
   `;
 
-  $("#editName").onclick = () => setStep(1);
   view.querySelectorAll("[data-cat]").forEach((b) => b.onclick = () => { S.activeCat = b.dataset.cat; renderMenu(); });
   view.querySelectorAll("[data-reorder]").forEach((b) => b.onclick = () => reorder(b.dataset.reorder));
   view.querySelectorAll(".m-card").forEach((card) => {
@@ -383,12 +381,12 @@ function reorder(orderId) {
 function renderCartBar() {
   const bar = $("#cartBar");
   const n = S.cart.reduce((s, l) => s + l.qty, 0);
-  if (S.step !== 2 || !n) { bar.innerHTML = ""; return; }
+  if (S.step !== 1 || !n) { bar.innerHTML = ""; return; }
   const total = S.cart.reduce((s, l) => s + unitPriceOf(l.basePrice, l.options) * l.qty, 0);
   bar.innerHTML = `<div class="cart-bar"><button class="btn primary lg" id="toSum">
     <span class="row" style="gap:10px"><span class="count num">${n}</span> ดูตะกร้า</span>
     <span class="num">${baht(total)}</span></button></div>`;
-  $("#toSum").onclick = () => setStep(3);
+  $("#toSum").onclick = () => setStep(2);
 }
 
 // ---------- step 3 ----------
@@ -414,7 +412,7 @@ function validateLine(l) {
 function renderSummary() {
   if (!S.cart.length) {
     view.innerHTML = `<div class="card empty">${ICON.bag}<p>ตะกร้ายังว่างอยู่</p><br><button class="btn primary" id="back">เลือกเมนู</button></div>`;
-    $("#back").onclick = () => setStep(2); return;
+    $("#back").onclick = () => setStep(1); return;
   }
   const lines = S.cart.map((l) => ({ l, v: validateLine(l) }));
   const bad = lines.some((x) => !x.v.ok);
@@ -423,13 +421,6 @@ function renderSummary() {
   view.innerHTML = `
     <section class="card sum-card">
       <div class="row between"><h2 style="font-size:21px">สรุปรายการ</h2><button class="btn ghost sm" id="addMore">${ICON.plus} เพิ่มเมนู</button></div>
-      <div class="stack" style="gap:6px">
-        <div class="kv"><span>ชื่อลูกค้า</span><b>${esc(S.name)}</b></div>
-        ${S.phone ? `<div class="kv"><span>เบอร์โทร</span><b>${esc(S.phone)}</b></div>` : ""}
-        <div class="kv"><span>วันที่รับอาหาร</span><b>${esc(fmtDelivery(S.deliveryDate))}</b></div>
-        <div class="kv"><span>ส่งที่</span><b style="text-align:right">${esc(S.point)}</b></div>
-        <button class="btn ghost sm" id="editInfo" style="justify-self:end">แก้ไขข้อมูลการส่ง</button>
-      </div>
       <div>
         ${lines.map(({ l, v }, i) => `
           <div class="sum-row">
@@ -450,10 +441,9 @@ function renderSummary() {
       ${closed ? `<div class="closed-banner" style="margin:0">ร้านปิดรับออเดอร์ชั่วคราว</div>` : ""}
       ${bad ? `<p class="small" style="color:var(--danger)">กรุณาลบรายการที่ขึ้นสีแดงก่อนยืนยัน (กด − จนหมด)</p>` : ""}
       ${new Set(S.cart.map((l) => l.forName).filter(Boolean)).size ? `<p class="muted small">สั่งรวม ${new Set(S.cart.map((l) => l.forName || S.name)).size} คน · ร้านจะแยกรายการตามชื่อให้ตอนส่ง</p>` : `<p class="muted small">สั่งแทนเพื่อนได้ กด "เพิ่มเมนู" แล้วใส่ชื่อในช่อง "สั่งให้ใคร"</p>`}
-      <button class="btn primary lg block" id="confirm" ${bad || closed ? "disabled" : ""}>ไปชำระเงิน</button>
+      <button class="btn primary lg block" id="confirm" ${bad || closed ? "disabled" : ""}>ถัดไป: กรอกข้อมูลจัดส่ง</button>
     </section>`;
-  $("#addMore").onclick = () => setStep(2);
-  $("#editInfo").onclick = () => setStep(1);
+  $("#addMore").onclick = () => setStep(1);
   view.querySelectorAll("[data-d]").forEach((b) => b.onclick = () => {
     const l = S.cart[Number(b.dataset.i)];
     l.qty += Number(b.dataset.d);
@@ -461,14 +451,15 @@ function renderSummary() {
     l.qty = Math.min(99, l.qty);
     saveCart(); render();
   });
-  $("#confirm").onclick = () => setStep(4);
+  $("#confirm").onclick = () => setStep(3);
 }
 
 // ---------- step 4 : ชำระเงิน ----------
 function cartLines() { return S.cart.map((l) => ({ l, v: validateLine(l) })); }
 function renderPayment() {
   const lines = cartLines();
-  if (!lines.length || lines.some((x) => !x.v.ok)) { setStep(3); return; }
+  if (!lines.length || lines.some((x) => !x.v.ok)) { setStep(2); return; }
+  if (!S.name || !S.point || !validDates().includes(S.deliveryDate)) { setStep(3); return; }
   const st = S.settings;
   const total = lines.reduce((s, x) => s + x.v.unitPrice * x.l.qty, 0);
   const canTransfer = hasPayment(st);
@@ -478,6 +469,13 @@ function renderPayment() {
   view.innerHTML = `
     <section class="card sum-card">
       <h2 style="font-size:21px">ชำระเงิน</h2>
+      <div class="stack" style="gap:6px">
+        <div class="kv"><span>ชื่อลูกค้า</span><b>${esc(S.name)}</b></div>
+        ${S.phone ? `<div class="kv"><span>เบอร์โทร</span><b>${esc(S.phone)}</b></div>` : ""}
+        <div class="kv"><span>วันที่รับอาหาร</span><b>${esc(fmtDelivery(S.deliveryDate))}</b></div>
+        <div class="kv"><span>ส่งที่</span><b style="text-align:right">${esc(S.point)}</b></div>
+        <button class="btn ghost sm" id="editInfo" style="justify-self:end">แก้ไขข้อมูลการส่ง</button>
+      </div>
       <div class="pay-amount"><span class="muted small">ยอดที่ต้องโอน</span><span class="num">${baht(total)}</span></div>
       ${canTransfer && canLater ? `<div class="opt-list" id="payMode" role="radiogroup">
         <button type="button" class="chip" role="radio" data-m="transfer" aria-checked="${S.payMode === "transfer"}">โอนตอนนี้ + แนบสลิป</button>
@@ -520,7 +518,8 @@ function renderPayment() {
     catch (e) { toast(e.message, "bad"); }
   };
   const sr = $("#slipRm"); if (sr) sr.onclick = () => $("#slipIn").click();
-  $("#backCart").onclick = () => setStep(3);
+  $("#backCart").onclick = () => setStep(2);
+  $("#editInfo").onclick = () => setStep(3);
   $("#placeBtn").onclick = () => placeOrder(lines);
 }
 
@@ -540,7 +539,7 @@ async function placeOrder(lines) {
   const dd = S.deliveryDate;
   if (!validDates().includes(dd)) {
     S.placing = false; if (btn) { btn.disabled = false; btn.textContent = "ยืนยันการสั่งซื้อ"; }
-    toast("วันส่งที่เลือกปิดรับแล้ว กรุณาเลือกวันใหม่", "bad", 4500); setStep(1); return;
+    toast("วันส่งที่เลือกปิดรับแล้ว กรุณาเลือกวันใหม่", "bad", 4500); setStep(3); return;
   }
   const orderRef = doc(collection(db, "orders"));
   try {
@@ -688,9 +687,8 @@ function openMyOrders() {
       if (S.trackUnsub) { S.trackUnsub(); S.trackUnsub = null; }
       S.trackId = null;
       const u = new URL(location.href); u.searchParams.delete("order"); history.replaceState(null, "", u);
-      S.step = 2; reorder(r.dataset.re);
-      if (!S.name || !S.point || !S.deliveryDate) { setStep(1); return; }
-      setStep(3);
+      S.step = 1; reorder(r.dataset.re);
+      setStep(2);
     }
   });
 }

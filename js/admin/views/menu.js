@@ -2,6 +2,7 @@ import { db, doc, collection, setDoc, updateDoc, deleteDoc, serverTimestamp } fr
 import { A, isOwner, catName, invById } from "../state.js";
 import { esc, baht, toast, openModal, confirmDialog, resizeImage, uid, initials } from "../../common.js";
 import { I } from "../ui.js";
+import { addMissingSeed } from "./settings.js";
 
 export default {
   deps: ["products", "categories", "inventory"],
@@ -18,7 +19,7 @@ export default {
       </section>` : ""}
       <section class="card">
         <div class="card-head"><h3 class="card-title">รายการเมนู (${A.products.length})</h3>
-          ${owner ? `<button class="btn primary sm" id="addProd">${I.plus} เพิ่มเมนู</button>` : `<span class="muted small">พนักงานเปิด/ปิด "มีขาย" ได้เมื่อของหมด</span>`}</div>
+          ${owner ? `<button class="btn sm" id="addSeed">เพิ่มเมนูเริ่มต้นที่ยังไม่มี</button><button class="btn primary sm" id="addProd">${I.plus} เพิ่มเมนู</button>` : `<span class="muted small">พนักงานเปิด/ปิด "มีขาย" ได้เมื่อของหมด</span>`}</div>
         ${A.products.length ? `<div class="table-wrap"><table class="tbl">
           <thead><tr><th></th><th>เมนู</th><th>หมวด</th><th class="r">ราคา</th><th>ตัวเลือก</th><th>สูตรตัดสต็อก</th><th>มีขาย</th>${owner ? "<th></th>" : ""}</tr></thead>
           <tbody>${A.products.map((p) => {
@@ -46,6 +47,7 @@ export default {
     el.querySelector("#addCat").onclick = () => editCategory();
     el.querySelectorAll("[data-ecat]").forEach((b) => b.onclick = () => editCategory(A.categories.find((c) => c.id === b.dataset.ecat)));
     el.querySelector("#addProd").onclick = () => editProduct();
+    el.querySelector("#addSeed").onclick = addMissingSeed;
     el.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => editProduct(A.products.find((p) => p.id === b.dataset.edit)));
     el.querySelectorAll("[data-dup]").forEach((b) => b.onclick = () => {
       const p = structuredClone(A.products.find((x) => x.id === b.dataset.dup));

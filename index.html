@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f47c9b">
+  <title>ร้านของเบนซ์ — สั่งอาหาร</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;500;600&family=Sarabun:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/customer.css">
+</head>
+<body class="customer">
+  <header class="c-hero">
+    <div class="c-hero-in">
+      <div class="c-logo" id="logo">บ</div>
+      <div class="grow">
+        <h1 id="shopName">ร้านของเบนซ์</h1>
+        <p class="tagline" id="tagline"></p>
+        <p class="c-open" id="openState" hidden></p>
+      </div>
+      <button class="btn sm my-orders" id="myOrdersBtn" hidden>ออเดอร์ของฉัน</button>
+    </div>
+  </header>
+
+  <div class="c-wrap">
+    <nav class="steps" id="steps" aria-label="ขั้นตอนการสั่ง">
+      <div class="step" data-s="1"><span class="dot"></span>ข้อมูล</div>
+      <div class="step" data-s="2"><span class="dot"></span>เลือกเมนู</div>
+      <div class="step" data-s="3"><span class="dot"></span>ตะกร้า</div>
+      <div class="step" data-s="4"><span class="dot"></span>ชำระเงิน</div>
+      <div class="step" data-s="5"><span class="dot"></span>สั่งสำเร็จ</div>
+    </nav>
+    <main id="view"><div class="spinner"></div></main>
+  </div>
+
+  <div id="cartBar"></div>
+  <footer class="c-foot" id="foot"></footer>
+
+  <script type="module" src="js/customer.js"></script>
+</body>
+</html>

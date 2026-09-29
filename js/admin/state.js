@@ -18,6 +18,7 @@ export const A = {
   daily: {},             // { 'YYYY-MM-DD': {revenue, orders, products} }
   expenses: [],
   staff: [],
+  coupons: [],
   loaded: {},
   soundOn: store.get("benz.admin.sound", true),
 };
@@ -64,6 +65,7 @@ export function productSalesBetween(fromKey, toKey) {
       if (v.name) m[pid].name = v.name;
     }
   }
+  for (const x of Object.values(m)) { const p = A.products.find((p) => p.id === x.pid); if (p) x.name = p.name; }
   return Object.values(m).filter((x) => x.qty > 0).sort((a, b) => b.qty - a.qty || b.revenue - a.revenue);
 }
 export function lastNMonths(n) {

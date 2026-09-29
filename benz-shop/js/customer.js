@@ -1,6 +1,6 @@
 // หน้าสั่งอาหารสำหรับลูกค้า
 import {
-  isConfigured, db, collection, doc, onSnapshot, runTransaction, serverTimestamp, writeBatch,
+  isConfigured, db, collection, doc, onSnapshot, runTransaction, serverTimestamp, writeBatch, getDoc,
 } from "./fb.js";
 import {
   STATUS, STATUS_FLOW, DEFAULT_SETTINGS, esc, baht, dateKey, fmtTime, fmtDate, toDate,
@@ -32,8 +32,20 @@ const S = {
   lastStatus: null,
   placing: false,
   slip: "",          // รูปสลิป (data URL) ที่เลือกไว้ในหน้าชำระเงิน
-  payMode: "transfer",
+  payMode: "",
+  coupon: null,      // { code, type, value, minTotal }
+  bag: store.get("benz.bag", null),        // true/false
+  cutlery: store.get("benz.cutlery", null), // true/false
+  deskNote: store.get("benz.deskNote", ""),
+  deskPhoto: store.get("benz.deskPhoto", ""),
 };
+const subtotalOf = (lines) => lines.reduce((s, x) => s + (x.v.ok ? x.v.unitPrice * x.l.qty : 0), 0);
+function discountOf(sub) {
+  const c = S.coupon; if (!c) return 0;
+  if (c.minTotal && sub < c.minTotal) return 0;
+  const d = c.type === "percent" ? Math.round((sub * c.value) / 100) : Number(c.value) || 0;
+  return Math.max(0, Math.min(sub, d));
+}
 
 const saveCart = () => store.set("benz.cart", S.cart);
 const saveHistory = () => store.set("benz.history", S.history.slice(0, 10));
@@ -152,6 +164,26 @@ function renderName() {
         </div>` : ""}
         <input class="input" id="pointIn" maxlength="80" placeholder="เช่น ฝ่ายบุคคล อาคาร B ชั้น 5" value="${esc(custom ? S.point : "")}" ${points.length && !(custom && S.point) ? "hidden" : ""}>
       </div>
+      <div class="field" role="group"><span>ถุงหูหิ้ว *</span>
+        <div class="opt-list" id="bagList">
+          <button type="button" class="chip" role="radio" data-bag="1" aria-checked="${S.bag === true}">ใส่ถุงหูหิ้ว</button>
+          <button type="button" class="chip" role="radio" data-bag="0" aria-checked="${S.bag === false}">ไม่ใส่ถุง</button>
+        </div></div>
+      <div class="field" role="group"><span>ช้อนส้อม *</span>
+        <div class="opt-list" id="cutList">
+          <button type="button" class="chip" role="radio" data-cut="1" aria-checked="${S.cutlery === true}">รับช้อนส้อม</button>
+          <button type="button" class="chip" role="radio" data-cut="0" aria-checked="${S.cutlery === false}">ไม่รับ</button>
+        </div></div>
+      <label class="field">ส่งที่โต๊ะไหน (ไม่บังคับ)
+        <input class="input" id="deskIn" maxlength="80" placeholder="เช่น โต๊ะริมหน้าต่าง แถว 3 ข้างเครื่องปริ้น" value="${esc(S.deskNote)}">
+      </label>
+      <div class="field"><span>รูปโต๊ะทำงาน (ไม่บังคับ) ช่วยให้ร้านหาเจอง่ายขึ้น</span>
+        <label class="slip-drop ${S.deskPhoto ? "has" : ""}" style="min-height:90px">
+          ${S.deskPhoto ? `<img src="${S.deskPhoto}" alt="รูปโต๊ะ" style="max-height:200px">` : `<span>${ICON.plus}<br>ถ่าย/เลือกรูปโต๊ะ</span>`}
+          <input type="file" accept="image/*" id="deskPhotoIn" hidden>
+        </label>
+        ${S.deskPhoto ? `<button type="button" class="btn ghost sm" id="deskPhotoRm" style="justify-self:start">ลบรูป</button>` : ""}
+      </div>
       <p class="small" id="nameErr" style="color:var(--danger)" hidden></p>
       <button class="btn primary lg block" id="toMenu">ไปชำระเงิน</button>
       <button class="btn ghost sm" id="backCart2" style="justify-self:center">กลับไปแก้ตะกร้า</button>
@@ -167,17 +199,37 @@ function renderName() {
   if (pl) pl.onclick = (e) => {
     const b = e.target.closest("[data-p]"); if (!b) return;
     pointChoice = b.dataset.p;
+    if (pointChoice !== "__other") S.point = pointChoice;
     pl.querySelectorAll("[data-p]").forEach((x) => x.setAttribute("aria-checked", x === b));
     pin.hidden = pointChoice !== "__other";
     if (!pin.hidden) pin.focus();
   };
+  const pick = (listId, attr, key) => { $(listId).onclick = (e) => {
+    const b = e.target.closest(`[${attr}]`); if (!b) return;
+    S[key] = b.getAttribute(attr) === "1";
+    $(listId).querySelectorAll(`[${attr}]`).forEach((x) => x.setAttribute("aria-checked", x === b));
+    err.hidden = true;
+  }; };
+  pick("#bagList", "data-bag", "bag"); pick("#cutList", "data-cut", "cutlery");
+  const keepForm = () => {
+    S.name = inp.value.trim(); S.phone = $("#phoneIn").value.trim(); S.deskNote = $("#deskIn").value.trim();
+    if (!pin.hidden && pin.value.trim()) S.point = pin.value.trim();
+  };
+  $("#deskPhotoIn").onchange = async (e) => {
+    try { keepForm(); S.deskPhoto = await resizeImage(e.target.files[0], 900, 0.7); store.set("benz.deskPhoto", S.deskPhoto); renderName(); }
+    catch (er) { toast(er.message, "bad"); }
+  };
+  const dpr = $("#deskPhotoRm"); if (dpr) dpr.onclick = () => { keepForm(); S.deskPhoto = ""; store.set("benz.deskPhoto", ""); renderName(); };
   const go = () => {
     const v = inp.value.trim();
     const point = (pl ? (pointChoice === "__other" ? pin.value : pointChoice) : pin.value).trim();
-    const msg = !v ? "กรุณากรอกชื่อ" : !S.deliveryDate ? "ยังไม่มีวันส่งที่เลือกได้ กรุณาติดต่อร้าน" : !point ? "กรุณาระบุที่ส่ง" : "";
+    const msg = !v ? "กรุณากรอกชื่อ" : !S.deliveryDate ? "ยังไม่มีวันส่งที่เลือกได้ กรุณาติดต่อร้าน" : !point ? "กรุณาระบุที่ส่ง"
+      : S.bag == null ? "กรุณาเลือกว่าจะใส่ถุงหูหิ้วไหม" : S.cutlery == null ? "กรุณาเลือกว่าจะรับช้อนส้อมไหม" : "";
     if (msg) { err.textContent = msg; err.hidden = false; if (!v) { inp.classList.add("invalid"); inp.focus(); } return; }
     S.name = v; S.phone = $("#phoneIn").value.trim(); S.point = point;
     store.set("benz.name", v); store.set("benz.phone", S.phone); store.set("benz.point", point);
+    S.deskNote = $("#deskIn").value.trim();
+    store.set("benz.bag", S.bag); store.set("benz.cutlery", S.cutlery); store.set("benz.deskNote", S.deskNote);
     setStep(4);
   };
   $("#toMenu").addEventListener("click", go);
@@ -416,7 +468,7 @@ function renderSummary() {
   }
   const lines = S.cart.map((l) => ({ l, v: validateLine(l) }));
   const bad = lines.some((x) => !x.v.ok);
-  const total = lines.reduce((s, x) => s + (x.v.ok ? x.v.unitPrice * x.l.qty : 0), 0);
+  const total = subtotalOf(lines);
   const closed = S.settings.orderingOpen === false;
   view.innerHTML = `
     <section class="card sum-card">
@@ -437,7 +489,13 @@ function renderSummary() {
             </div>
           </div>`).join("")}
       </div>
-      <div class="sum-total"><span>ยอดรวม</span><span class="num">${baht(total)}</span></div>
+      <div class="coupon-row">
+        <input class="input" id="cpIn" placeholder="โค้ดส่วนลด (ถ้ามี)" value="${esc(S.coupon?.code || "")}" maxlength="30" autocapitalize="characters" ${S.coupon ? "disabled" : ""}>
+        ${S.coupon ? `<button class="btn sm ghost" id="cpRm">ยกเลิกโค้ด</button>` : `<button class="btn sm" id="cpApply">ใช้โค้ด</button>`}
+      </div>
+      ${S.coupon ? `<div class="kv"><span>ยอดอาหาร</span><b class="num">${baht(total)}</b></div>
+        <div class="kv"><span>ส่วนลด (${esc(S.coupon.code)})</span><b class="num" style="color:var(--mint)">${discountOf(total) ? "−" + baht(discountOf(total)) : `ยังไม่ถึงขั้นต่ำ ${baht(S.coupon.minTotal)}`}</b></div>` : ""}
+      <div class="sum-total"><span>ยอดรวม</span><span class="num">${baht(total - discountOf(total))}</span></div>
       ${closed ? `<div class="closed-banner" style="margin:0">ร้านปิดรับออเดอร์ชั่วคราว</div>` : ""}
       ${bad ? `<p class="small" style="color:var(--danger)">กรุณาลบรายการที่ขึ้นสีแดงก่อนยืนยัน (กด − จนหมด)</p>` : ""}
       ${new Set(S.cart.map((l) => l.forName).filter(Boolean)).size ? `<p class="muted small">สั่งรวม ${new Set(S.cart.map((l) => l.forName || S.name)).size} คน · ร้านจะแยกรายการตามชื่อให้ตอนส่ง</p>` : `<p class="muted small">สั่งแทนเพื่อนได้ กด "เพิ่มเมนู" แล้วใส่ชื่อในช่อง "สั่งให้ใคร"</p>`}
@@ -452,20 +510,41 @@ function renderSummary() {
     saveCart(); render();
   });
   $("#confirm").onclick = () => setStep(3);
+  const ap = $("#cpApply");
+  if (ap) ap.onclick = async () => {
+    const code = $("#cpIn").value.trim().toUpperCase();
+    if (!code) return;
+    if (!/^[A-Z0-9_-]{1,30}$/.test(code)) return toast("โค้ดไม่ถูกต้อง", "bad");
+    ap.disabled = true;
+    try {
+      const snap = await getDoc(doc(db, "coupons", code));
+      const c = snap.exists() ? snap.data() : null;
+      if (!c || c.active === false) { toast("ไม่พบโค้ดนี้ หรือโค้ดหมดอายุแล้ว", "bad"); ap.disabled = false; return; }
+      S.coupon = { code, type: c.type === "percent" ? "percent" : "amount", value: Number(c.value) || 0, minTotal: Number(c.minTotal) || 0 };
+      toast(`ใช้โค้ด ${code} แล้ว`, "ok", 1800); render();
+    } catch { toast("ตรวจโค้ดไม่สำเร็จ ลองใหม่อีกครั้ง", "bad"); ap.disabled = false; }
+  };
+  const rm = $("#cpRm"); if (rm) rm.onclick = () => { S.coupon = null; render(); };
 }
 
 // ---------- step 4 : ชำระเงิน ----------
 function cartLines() { return S.cart.map((l) => ({ l, v: validateLine(l) })); }
+function payMethods(st) {
+  const m = [];
+  if (hasPayment(st)) m.push("transfer");
+  if (st.payCash !== false) m.push("cash");
+  if (st.payHalf !== false) m.push("halfhalf");
+  return m.length ? m : ["cash"];
+}
 function renderPayment() {
   const lines = cartLines();
   if (!lines.length || lines.some((x) => !x.v.ok)) { setStep(2); return; }
-  if (!S.name || !S.point || !validDates().includes(S.deliveryDate)) { setStep(3); return; }
+  if (!S.name || !S.point || !validDates().includes(S.deliveryDate) || S.bag == null || S.cutlery == null) { setStep(3); return; }
   const st = S.settings;
-  const total = lines.reduce((s, x) => s + x.v.unitPrice * x.l.qty, 0);
-  const canTransfer = hasPayment(st);
-  const canLater = st.payLater === true || !canTransfer;
-  if (!canTransfer) S.payMode = "later";
-  else if (!canLater) S.payMode = "transfer";
+  const sub = subtotalOf(lines), disc = discountOf(sub), total = sub - disc;
+  const methods = payMethods(st);
+  if (!methods.includes(S.payMode)) S.payMode = methods[0];
+  const label = { transfer: ["โอนผ่าน QR", "โอนแล้วแนบสลิป"], cash: ["เงินสด", "จ่ายตอนรับอาหาร"], halfhalf: ["คนละครึ่ง", "จ่ายผ่านแอปเป๋าตังตอนรับ"] };
   view.innerHTML = `
     <section class="card sum-card">
       <h2 style="font-size:21px">ชำระเงิน</h2>
@@ -473,14 +552,15 @@ function renderPayment() {
         <div class="kv"><span>ชื่อลูกค้า</span><b>${esc(S.name)}</b></div>
         ${S.phone ? `<div class="kv"><span>เบอร์โทร</span><b>${esc(S.phone)}</b></div>` : ""}
         <div class="kv"><span>วันที่รับอาหาร</span><b>${esc(fmtDelivery(S.deliveryDate))}</b></div>
-        <div class="kv"><span>ส่งที่</span><b style="text-align:right">${esc(S.point)}</b></div>
+        <div class="kv"><span>ส่งที่</span><b style="text-align:right">${esc(S.point)}${S.deskNote ? ` · ${esc(S.deskNote)}` : ""}</b></div>
+        <div class="kv"><span>ถุง / ช้อนส้อม</span><b>${S.bag ? "ใส่ถุง" : "ไม่ใส่ถุง"} · ${S.cutlery ? "รับช้อนส้อม" : "ไม่รับช้อนส้อม"}</b></div>
         <button class="btn ghost sm" id="editInfo" style="justify-self:end">แก้ไขข้อมูลการส่ง</button>
       </div>
-      <div class="pay-amount"><span class="muted small">ยอดที่ต้องโอน</span><span class="num">${baht(total)}</span></div>
-      ${canTransfer && canLater ? `<div class="opt-list" id="payMode" role="radiogroup">
-        <button type="button" class="chip" role="radio" data-m="transfer" aria-checked="${S.payMode === "transfer"}">โอนตอนนี้ + แนบสลิป</button>
-        <button type="button" class="chip" role="radio" data-m="later" aria-checked="${S.payMode === "later"}">จ่ายทีหลัง / จ่ายตอนรับ</button>
-      </div>` : ""}
+      <div class="pay-amount"><span class="muted small">ยอดที่ต้องชำระ${disc ? `<br>(ลด ${baht(disc)} จากโค้ด ${esc(S.coupon.code)})` : ""}</span><span class="num">${baht(total)}</span></div>
+      <div class="field"><span>เลือกวิธีชำระเงิน *</span>
+        <div class="pay-methods" id="payMode" role="radiogroup">
+          ${methods.map((m) => `<button type="button" class="pay-opt" role="radio" data-m="${m}" aria-checked="${S.payMode === m}"><b>${label[m][0]}</b><small>${label[m][1]}</small></button>`).join("")}
+        </div></div>
       ${S.payMode === "transfer" ? `
         <div class="pay-box">
           ${st.payQr ? `<img class="pay-qr" src="${esc(st.payQr)}" alt="QR สำหรับโอนเงิน"><p class="muted small">กดค้างที่รูปเพื่อบันทึก แล้วสแกนจากแอปธนาคาร</p>` : ""}
@@ -498,14 +578,14 @@ function renderPayment() {
             <input type="file" accept="image/*" id="slipIn" hidden>
           </label>
           ${S.slip ? `<button type="button" class="btn ghost sm" id="slipRm" style="justify-self:start">เปลี่ยนรูป</button>` : ""}
-        </div>` : `
-        <p class="muted">${canTransfer ? "ส่งออเดอร์ไปก่อน แล้วแนบสลิปทีหลังได้จากหน้าติดตามออเดอร์ หรือจ่ายตอนรับอาหาร" : "ชำระเงินตอนรับอาหาร"}</p>`}
+        </div>` : S.payMode === "cash" ? `
+        <p class="muted">เตรียมเงินสด <b style="color:var(--ink)">${baht(total)}</b> ไว้จ่ายตอนรับอาหารนะคะ</p>` : `
+        <p class="muted">ชำระผ่านโครงการคนละครึ่ง (แอปเป๋าตัง) ตอนรับอาหาร ยอด <b style="color:var(--ink)">${baht(total)}</b> ร้านจะเช็กการชำระให้ค่ะ</p>`}
       <button class="btn primary lg block" id="placeBtn" ${S.payMode === "transfer" && !S.slip ? "disabled" : ""}>ยืนยันการสั่งซื้อ</button>
       ${S.payMode === "transfer" && !S.slip ? `<p class="muted small" style="text-align:center">แนบสลิปก่อนจึงจะยืนยันได้</p>` : ""}
       <button class="btn ghost sm" id="backCart" style="justify-self:center">กลับไปแก้ตะกร้า</button>
     </section>`;
-  const pm = $("#payMode");
-  if (pm) pm.onclick = (e) => { const b = e.target.closest("[data-m]"); if (b) { S.payMode = b.dataset.m; renderPayment(); } };
+  $("#payMode").onclick = (e) => { const b = e.target.closest("[data-m]"); if (b) { S.payMode = b.dataset.m; renderPayment(); } };
   const cp = $("#copyAcc");
   if (cp) cp.onclick = async () => {
     const acc = String(st.bankAccount).replace(/[^0-9]/g, "") || st.bankAccount;
@@ -534,7 +614,10 @@ async function placeOrder(lines) {
   }));
   const withSlip = S.payMode === "transfer";
   if (withSlip && !S.slip) { S.placing = false; toast("กรุณาแนบสลิป", "bad"); return; }
-  const total = items.reduce((s, it) => s + it.lineTotal, 0);
+  const subtotal = items.reduce((s, it) => s + it.lineTotal, 0);
+  const discount = discountOf(subtotal);
+  const total = subtotal - discount;
+  const withPhoto = !!S.deskPhoto;
   const dk = dateKey();
   const dd = S.deliveryDate;
   if (!validDates().includes(dd)) {
@@ -550,8 +633,11 @@ async function placeOrder(lines) {
       seq = c.exists() ? (c.data().n || 0) + 1 : 1;
       if (c.exists()) tx.update(cRef, { n: seq }); else tx.set(cRef, { n: 1 });
       if (withSlip) tx.set(doc(db, "slips", orderRef.id), { image: S.slip, createdAt: serverTimestamp() });
+      if (withPhoto) tx.set(doc(db, "deskPhotos", orderRef.id), { image: S.deskPhoto, createdAt: serverTimestamp() });
       tx.set(orderRef, {
-        paymentStatus: withSlip ? "slip" : "unpaid", paymentMethod: withSlip ? "transfer" : "later",
+        paymentStatus: withSlip ? "slip" : "unpaid", paymentMethod: S.payMode,
+        subtotal, discount, ...(discount ? { couponCode: S.coupon.code } : {}),
+        bag: !!S.bag, cutlery: !!S.cutlery, deskNote: (S.deskNote || "").slice(0, 80), hasDeskPhoto: withPhoto,
         ...(withSlip ? { slipAt: serverTimestamp() } : {}), source: "web",
         customerName: S.name.slice(0, 60), phone: S.phone.slice(0, 20), deliveryDate: dd, deliveryPoint: S.point.slice(0, 80), items,
         itemCount: items.reduce((s, it) => s + it.qty, 0), total,
@@ -565,7 +651,7 @@ async function placeOrder(lines) {
       items: items.map((it) => ({ productId: it.productId, name: it.name, qty: it.qty, note: it.note, forName: it.forName, choiceIds: it.options.map((o) => o.choiceId) })),
     });
     saveHistory();
-    S.cart = []; saveCart(); S.slip = "";
+    S.cart = []; saveCart(); S.slip = ""; S.coupon = null;
     goTrack(orderRef.id);
   } catch (e) {
     console.error(e);
@@ -624,15 +710,16 @@ function renderTrack() {
         ${o.deliveryPoint ? `<div class="kv"><span>ส่งที่</span><b style="text-align:right">${esc(o.deliveryPoint)}</b></div>` : ""}
         <div class="kv"><span>เวลาสั่ง</span><b>${o.createdAt ? `${fmtDate(o.createdAt)} ${fmtTime(o.createdAt)}` : "กำลังบันทึก..."}</b></div>
         <div class="kv"><span>สถานะ</span><span class="pill s-${o.status}">${STATUS[o.status]?.label || o.status}</span></div>
-        ${o.paymentStatus ? `<div class="kv"><span>การชำระเงิน</span><span class="pill ${PAY[o.paymentStatus]?.cls || ""}">${PAY[o.paymentStatus]?.label || o.paymentStatus}</span></div>` : ""}
+        ${o.paymentStatus ? `<div class="kv"><span>การชำระเงิน</span><span class="pill ${PAY[o.paymentStatus]?.cls || ""}">${PAY[o.paymentStatus]?.label || o.paymentStatus}${o.paymentMethod ? ` · ${PAY_METHOD[o.paymentMethod] || ""}` : ""}</span></div>` : ""}
       </div>
       ${cancelled ? "" : `<div class="track">${STATUS_FLOW.map((s, i) => `
         <div class="t ${i <= cur ? "on" : ""} ${i === cur && s !== "completed" ? "now" : ""}"><span class="c">${i <= cur ? ICON.check : ""}</span>${STATUS[s].label}</div>`).join("")}</div>`}
       <div style="width:100%;text-align:left;border-top:1px dashed var(--line);padding-top:12px" class="stack">
         ${o.items.map((it) => `<div class="kv"><span style="color:var(--ink)">${esc(it.name)} ×${it.qty}${it.forName ? ` <small class="muted">(${esc(it.forName)})</small>` : ""}${it.options?.length ? `<br><small class="muted">${esc(it.options.map((x) => x.name).join(" · "))}</small>` : ""}</span><b class="num">${baht(it.lineTotal)}</b></div>`).join("")}
+        ${o.discount ? `<div class="kv"><span>ส่วนลด (${esc(o.couponCode || "")})</span><b class="num" style="color:var(--mint)">−${baht(o.discount)}</b></div>` : ""}
         <div class="sum-total"><span>ยอดรวม</span><span class="num">${baht(o.total)}</span></div>
       </div>
-      ${o.paymentStatus === "unpaid" && !cancelled && hasPayment(S.settings) ? `
+      ${o.paymentStatus === "unpaid" && o.paymentMethod === "later" && !cancelled && hasPayment(S.settings) ? `
       <div class="pay-later stack" style="width:100%;text-align:left">
         <b>ยังไม่ได้ชำระเงิน ${baht(o.total)}</b>
         ${S.settings.payQr ? `<img class="pay-qr" src="${esc(S.settings.payQr)}" alt="QR สำหรับโอนเงิน">` : ""}

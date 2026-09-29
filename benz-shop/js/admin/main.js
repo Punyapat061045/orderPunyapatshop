@@ -181,6 +181,7 @@ function startListeners() {
       A.loaded.expenses = true; emit("expenses");
     }, "expenses");
     listen(collection(db, "staff"), (s) => { A.staff = docsOf(s); emit("staff"); }, "staff");
+    listen(collection(db, "coupons"), (s) => { A.coupons = docsOf(s).sort((a, b) => a.id.localeCompare(b.id)); emit("coupons"); }, "coupons");
   }
 }
 function stopListeners() { unsubs.forEach((u) => u()); unsubs = []; }

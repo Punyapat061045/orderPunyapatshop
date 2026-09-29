@@ -4,12 +4,14 @@ import { A } from "../state.js";
 import { esc, toast, openModal, confirmDialog, resizeImage, THEME_PRESETS, applyTheme, initials, dateKey, WEEKDAYS, deliveryDates, fmtDelivery } from "../../common.js";
 import { I, downloadBlob } from "../ui.js";
 import { SEED_CATEGORIES, SEED_INVENTORY, SEED_PRODUCTS } from "../../seed.js";
+import { HIST_EXPENSES, HIST_ORDERS, HIST_COUPON, HIST_BALANCE } from "../../history.js";
+import { getDoc, increment } from "../../fb.js";
 
 let draftLogo = null;
 let draftQr = null;
 
 export default {
-  deps: ["settings", "staff", "products"],
+  deps: ["settings", "staff", "products", "coupons"],
   render(el) {
     const s = A.settings;
     const logo = draftLogo ?? s.logo;
@@ -43,7 +45,7 @@ export default {
       </section>
 
       <section class="card">
-        <div class="card-head"><h3 class="card-title">การชำระเงิน (โอนเงิน + แนบสลิป)</h3></div>
+        <div class="card-head"><h3 class="card-title">การชำระเงิน</h3></div>
         <div class="stack" style="gap:16px">
           <div class="img-drop">
             ${(draftQr ?? s.payQr) ? `<img class="prev" src="${esc(draftQr ?? s.payQr)}" alt="QR รับเงิน" style="width:140px;height:auto;background:#fff">` : `<div class="prev thumb-ph" style="font-size:14px">ยังไม่มี QR</div>`}
@@ -59,10 +61,36 @@ export default {
             <label class="field">ชื่อบัญชี <input class="input" id="p-name" value="${esc(s.bankAccountName || "")}" maxlength="60"></label>
             <label class="field full">ข้อความถึงลูกค้า (ไม่บังคับ) <input class="input" id="p-note" value="${esc(s.payNote || "")}" placeholder="เช่น โอนแล้วแนบสลิปด้วยนะคะ" maxlength="120"></label>
           </div>
-          <label class="switch"><input type="checkbox" id="p-later" ${s.payLater ? "checked" : ""}><span class="track"></span> อนุญาตให้ลูกค้าสั่งก่อน แล้วจ่ายทีหลัง / จ่ายตอนรับ</label>
-          <p class="small muted">ถ้าปิดไว้ ลูกค้าต้องแนบสลิปก่อนจึงจะยืนยันออเดอร์ได้ · ถ้ายังไม่ใส่ QR หรือเลขบัญชี ระบบจะให้จ่ายตอนรับไปก่อน</p>
+          <div class="stack" style="gap:8px"><span class="small muted" style="font-weight:600">วิธีจ่ายที่ให้ลูกค้าเลือก</span>
+            <span class="small">✓ โอนผ่าน QR + แนบสลิป (เปิดอัตโนมัติเมื่อใส่ QR หรือเลขบัญชี)</span>
+            <label class="switch"><input type="checkbox" id="p-cash" ${s.payCash !== false ? "checked" : ""}><span class="track"></span> เงินสด (จ่ายตอนรับของ)</label>
+            <label class="switch"><input type="checkbox" id="p-half" ${s.payHalf !== false ? "checked" : ""}><span class="track"></span> คนละครึ่ง</label></div>
+          <p class="small muted">เงินสดและคนละครึ่ง ลูกค้าไม่ต้องแนบสลิป — ออเดอร์จะขึ้นว่า "ยังไม่จ่าย" ให้เรากดเปลี่ยนเป็น "จ่ายแล้ว" เองเมื่อได้รับเงิน</p>
           <div><button class="btn primary" id="p-save">บันทึกการชำระเงิน</button></div>
         </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h3 class="card-title">โค้ดส่วนลด</h3><button class="btn sm" id="addCp">${I.plus} เพิ่มโค้ด</button></div>
+        <div class="list">
+          ${A.coupons.map((c) => `<div class="list-item"><span class="rank" style="font-size:12px">${I.tag || "%"}</span>
+            <div class="grow"><b class="num">${esc(c.id)}</b><br><span class="muted small">ลด ${c.type === "percent" ? `${Number(c.value)}%` : `${Number(c.value)} บาท`}${Number(c.minTotal) ? ` · ขั้นต่ำ ${Number(c.minTotal)} บาท` : ""}${c.note ? ` · ${esc(c.note)}` : ""}</span></div>
+            <label class="switch"><input type="checkbox" data-cpon="${esc(c.id)}" ${c.active !== false ? "checked" : ""}><span class="track"></span> ${c.active !== false ? "ใช้ได้" : "ปิด"}</label>
+            <button class="btn icon ghost sm" data-cpedit="${esc(c.id)}" aria-label="แก้ไข">${I.edit || "✎"}</button>
+            <button class="btn icon ghost sm" data-cprm="${esc(c.id)}" aria-label="ลบ">${I.trash}</button></div>`).join("") || `<p class="muted small">ยังไม่มีโค้ด</p>`}
+        </div>
+        <p class="muted small" style="margin-top:10px">ลูกค้าพิมพ์โค้ดในหน้าตะกร้า (พิมพ์เล็ก/ใหญ่ก็ได้) · ปิดโค้ดชั่วคราวได้โดยไม่ต้องลบ</p>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h3 class="card-title">เงินตั้งต้นของร้าน</h3></div>
+        <div class="form-grid">
+          <label class="field">เงินที่มีอยู่ (บาท) <input class="input" type="number" step="0.01" id="ob-amt" value="${s.openingBalance?.amount ?? ""}" inputmode="decimal"></label>
+          <label class="field">ณ วันที่ <input class="input" type="date" id="ob-date" value="${esc(s.openingBalance?.date || dateKey())}"></label>
+          <label class="field full">หมายเหตุ <input class="input" id="ob-note" value="${esc(s.openingBalance?.note || "")}" maxlength="80"></label>
+        </div>
+        <p class="muted small" style="margin:10px 0">หน้าบัญชีจะคำนวณ "เงินร้านโดยประมาณ" = เงินตั้งต้น + รายรับหลังวันนี้ − รายจ่ายหลังวันนี้</p>
+        <button class="btn primary" id="ob-save">บันทึกเงินตั้งต้น</button>
       </section>
 
       <section class="card">
@@ -114,8 +142,9 @@ export default {
         <div class="row">
           <button class="btn" id="backup">${I.down} สำรองข้อมูลทั้งหมด (JSON)</button>
           ${A.products.length === 0 ? `<button class="btn" id="seed2">สร้างข้อมูลเริ่มต้น</button>` : ""}
+          <button class="btn" id="histImp">นำเข้าข้อมูลก่อนเข้าระบบ</button>
         </div>
-        <p class="muted small">แนะนำให้กดสำรองข้อมูลเดือนละครั้ง แล้วเก็บไฟล์ไว้ใน Google Drive</p>
+        <p class="muted small">แนะนำให้กดสำรองข้อมูลเดือนละครั้ง แล้วเก็บไฟล์ไว้ใน Google Drive · "นำเข้าข้อมูลก่อนเข้าระบบ" = รายจ่ายที่ลงทุนไป 41 รายการ, ยอดขาย 6 ครั้ง, โค้ด STAM22 และเงินตั้งต้น 425 บาท (กดซ้ำได้ ไม่เพิ่มซ้ำ)</p>
       </section>`;
 
     // ordering switch
@@ -185,7 +214,8 @@ export default {
     el.querySelector("#p-save").onclick = async () => {
       const d = { bankName: el.querySelector("#p-bank").value.trim(), bankAccount: el.querySelector("#p-acc").value.trim(),
         bankAccountName: el.querySelector("#p-name").value.trim(), payNote: el.querySelector("#p-note").value.trim(),
-        payLater: el.querySelector("#p-later").checked, payQr: draftQr ?? s.payQr ?? "" };
+        payCash: el.querySelector("#p-cash").checked, payHalf: el.querySelector("#p-half").checked, payLater: false, payQr: draftQr ?? s.payQr ?? "" };
+      if (!d.payCash && !d.payHalf && !d.payQr && !d.bankAccount) return toast("ต้องเปิดวิธีจ่ายอย่างน้อย 1 แบบ", "bad");
       try { await setDoc(doc(db, "settings", "shop"), d, { merge: true }); draftQr = null; toast("บันทึกการชำระเงินแล้ว", "ok"); }
       catch { toast("บันทึกไม่สำเร็จ", "bad"); }
     };
@@ -196,6 +226,22 @@ export default {
       try { await deleteDoc(doc(db, "staff", b.dataset.rmstaff)); toast("ลบสิทธิ์แล้ว", "ok"); } catch { toast("ลบไม่สำเร็จ", "bad"); }
     });
     el.querySelector("#backup").onclick = (e) => backup(e.target);
+    el.querySelector("#histImp").onclick = (e) => importHistory(e.target);
+    el.querySelector("#addCp").onclick = () => editCoupon();
+    el.querySelectorAll("[data-cpedit]").forEach((b) => b.onclick = () => editCoupon(A.coupons.find((c) => c.id === b.dataset.cpedit)));
+    el.querySelectorAll("[data-cpon]").forEach((b) => b.onchange = async () => {
+      try { await setDoc(doc(db, "coupons", b.dataset.cpon), { active: b.checked }, { merge: true }); toast(b.checked ? "เปิดใช้โค้ดแล้ว" : "ปิดโค้ดแล้ว", "ok", 1500); }
+      catch { b.checked = !b.checked; toast("บันทึกไม่สำเร็จ", "bad"); }
+    });
+    el.querySelectorAll("[data-cprm]").forEach((b) => b.onclick = async () => {
+      if (!(await confirmDialog(`ลบโค้ด ${b.dataset.cprm}?`, { okText: "ลบ", danger: true }))) return;
+      try { await deleteDoc(doc(db, "coupons", b.dataset.cprm)); toast("ลบแล้ว", "ok"); } catch { toast("ลบไม่สำเร็จ", "bad"); }
+    });
+    el.querySelector("#ob-save").onclick = async () => {
+      const v = el.querySelector("#ob-amt").value;
+      const ob = v === "" ? null : { amount: Number(v), date: el.querySelector("#ob-date").value || dateKey(), note: el.querySelector("#ob-note").value.trim() };
+      try { await setDoc(doc(db, "settings", "shop"), { openingBalance: ob }, { merge: true }); toast("บันทึกแล้ว", "ok"); } catch { toast("บันทึกไม่สำเร็จ", "bad"); }
+    };
     const s2 = el.querySelector("#seed2"); if (s2) s2.onclick = openSeed;
   },
 };
@@ -273,4 +319,62 @@ async function backup(btn) {
     toast("ดาวน์โหลดไฟล์สำรองแล้ว", "ok");
   } catch (e) { toast("สำรองข้อมูลไม่สำเร็จ", "bad"); }
   btn.disabled = false;
+}
+
+function editCoupon(c) {
+  const m = openModal(`
+    <div class="modal-head"><h3>${c ? "แก้ไขโค้ด" : "เพิ่มโค้ดส่วนลด"}</h3><button class="btn icon ghost" data-close aria-label="ปิด">${I.x}</button></div>
+    <div class="modal-body stack">
+      <label class="field">โค้ด (ตัวอักษรอังกฤษ/ตัวเลข) <input class="input" id="cp-code" value="${esc(c?.id || "")}" maxlength="20" ${c ? "disabled" : ""} placeholder="เช่น STAM22" autocapitalize="characters"></label>
+      <div class="form-grid">
+        <label class="field">แบบส่วนลด <select class="input" id="cp-type"><option value="amount" ${c?.type !== "percent" ? "selected" : ""}>ลดเป็นบาท</option><option value="percent" ${c?.type === "percent" ? "selected" : ""}>ลดเป็น %</option></select></label>
+        <label class="field">ลดเท่าไร <input class="input" type="number" min="1" id="cp-val" value="${c?.value ?? ""}" inputmode="decimal"></label>
+        <label class="field">ยอดขั้นต่ำ (บาท, ไม่บังคับ) <input class="input" type="number" min="0" id="cp-min" value="${c?.minTotal || ""}" inputmode="numeric"></label>
+        <label class="field">หมายเหตุ <input class="input" id="cp-note" value="${esc(c?.note || "")}" maxlength="60"></label>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-close>ยกเลิก</button><button class="btn primary" data-save>บันทึก</button></div>`);
+  m.el.querySelector("[data-save]").onclick = async () => {
+    const code = (c?.id || m.el.querySelector("#cp-code").value).trim().toUpperCase();
+    const type = m.el.querySelector("#cp-type").value, value = Number(m.el.querySelector("#cp-val").value);
+    if (!/^[A-Z0-9_-]{2,20}$/.test(code)) return toast("โค้ดใช้ได้เฉพาะ A-Z, 0-9 (2–20 ตัว)", "bad");
+    if (!(value > 0) || (type === "percent" && value > 100)) return toast("ใส่จำนวนส่วนลดให้ถูกต้อง", "bad");
+    if (!c && A.coupons.some((x) => x.id === code)) return toast("มีโค้ดนี้แล้ว", "bad");
+    try {
+      await setDoc(doc(db, "coupons", code), { type, value, minTotal: Number(m.el.querySelector("#cp-min").value) || 0,
+        note: m.el.querySelector("#cp-note").value.trim(), active: c ? c.active !== false : true, updatedAt: serverTimestamp() }, { merge: true });
+      m.close(); toast(`บันทึกโค้ด ${code} แล้ว`, "ok");
+    } catch (e) { console.error(e); toast("บันทึกไม่สำเร็จ (อัปเดต Rules แล้วหรือยัง?)", "bad"); }
+  };
+}
+
+async function importHistory(btn) {
+  if (!(await confirmDialog("นำเข้ารายจ่ายก่อนเข้าระบบ 41 รายการ (4,089 บาท), ยอดขาย 6 ครั้ง (1,353 บาท), โค้ด STAM22 และเงินตั้งต้น 425 บาท?", { okText: "นำเข้า" }))) return;
+  btn.disabled = true;
+  try {
+    let added = 0;
+    const b = writeBatch(db);
+    for (const e of HIST_EXPENSES) {
+      const { id, ...d } = e;
+      b.set(doc(db, "expenses", id), { ...d, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), by: A.email });
+    }
+    for (const o of HIST_ORDERS) {
+      if ((await getDoc(doc(db, "orders", o.id))).exists()) continue;
+      added++;
+      b.set(doc(db, "orders", o.id), { ...o.data, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), completedAt: serverTimestamp() });
+      const pmap = {};
+      for (const it of o.data.items) {
+        const cur = pmap[it.productId] || { name: it.name, q: 0, r: 0 };
+        cur.q += it.qty; cur.r += it.lineTotal; pmap[it.productId] = cur;
+      }
+      const products = Object.fromEntries(Object.entries(pmap).map(([pid, v]) => [pid, { name: v.name, qty: increment(v.q), revenue: increment(v.r) }]));
+      b.set(doc(db, "daily", o.data.deliveryDate), { date: o.data.deliveryDate, revenue: increment(o.data.total), orders: increment(1), products }, { merge: true });
+    }
+    const { id: cid, ...cp } = HIST_COUPON;
+    if (!(await getDoc(doc(db, "coupons", cid))).exists()) b.set(doc(db, "coupons", cid), { ...cp, updatedAt: serverTimestamp() });
+    if (!A.settings.openingBalance) b.set(doc(db, "settings", "shop"), { openingBalance: HIST_BALANCE }, { merge: true });
+    await b.commit();
+    toast(added ? "นำเข้าข้อมูลเรียบร้อยแล้ว" : "ข้อมูลนี้นำเข้าไว้แล้ว (อัปเดตรายจ่ายให้ตรงแล้ว)", "ok", 4000);
+  } catch (e) { console.error(e); toast("นำเข้าไม่สำเร็จ (อัปเดต Rules แล้วหรือยัง?)", "bad", 5000); }
+  finally { btn.disabled = false; }
 }

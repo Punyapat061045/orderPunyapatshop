@@ -13,7 +13,7 @@ export const PAY = {
   slip:   { label: "แนบสลิปแล้ว รอตรวจ", cls: "s-preparing" },
   paid:   { label: "จ่ายแล้ว", cls: "ok" },
 };
-export const PAY_METHOD = { transfer: "โอนเงิน", cash: "เงินสด", later: "จ่ายทีหลัง" };
+export const PAY_METHOD = { transfer: "โอนผ่าน QR", cash: "เงินสด", halfhalf: "คนละครึ่ง", later: "จ่ายทีหลัง", history: "ก่อนเข้าระบบ" };
 
 export const DEFAULT_SETTINGS = {
   shopName: "ร้านของเบนซ์",
@@ -40,7 +40,10 @@ export const DEFAULT_SETTINGS = {
   bankAccount: "",
   payQr: "",            // รูป QR พร้อมเพย์/ธนาคาร (data URL)
   payNote: "",
-  payLater: false,      // อนุญาตให้ลูกค้าสั่งก่อนแล้วจ่ายทีหลัง
+  payLater: false,      // (เวอร์ชันเก่า) อนุญาตให้ลูกค้าสั่งก่อนแล้วจ่ายทีหลัง
+  payCash: true,        // ให้ลูกค้าเลือก "เงินสด" ได้
+  payHalf: true,        // ให้ลูกค้าเลือก "คนละครึ่ง" ได้
+  openingBalance: null, // { amount, date, note } เงินร้านยกมา
 };
 /** ร้านตั้งค่าช่องทางโอนเงินแล้วหรือยัง */
 export const hasPayment = (st) => !!(st.bankAccount || st.payQr);

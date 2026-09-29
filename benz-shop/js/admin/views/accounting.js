@@ -39,7 +39,7 @@ export function monthlyPL(months) {
 }
 
 export default {
-  deps: ["daily", "expenses", "inventory"],
+  deps: ["daily", "expenses", "inventory", "settings"],
   render(el) {
     const P = periodKeys();
     const periods = [["วันนี้", P.today], ["สัปดาห์นี้", P.week], ["เดือนนี้", P.month], ["ปีนี้", P.year]].map(([label, [a, b]]) => {
@@ -54,7 +54,19 @@ export default {
     const byCat = {};
     list.forEach((e) => byCat[e.category] = (byCat[e.category] || 0) + (Number(e.total) || 0));
 
+    const ob = A.settings.openingBalance;
+    const allRev = revenueBetween("0000", "9999").rev, allExp = expensesBetween("0000", "9999");
+    const cash = ob ? Number(ob.amount) + revenueBetween(dateKey(addDays(new Date(ob.date + "T00:00"), 1)), "9999").rev - expensesBetween(dateKey(addDays(new Date(ob.date + "T00:00"), 1)), "9999") : null;
     el.innerHTML = `
+      <section class="card">
+        <div class="period" style="margin:0">
+          ${cash !== null ? `<div><span class="muted small" style="font-weight:600">เงินร้านโดยประมาณ</span><div class="profit num ${cash < 0 ? "neg" : ""}">${fmtNum(cash)} <small class="muted" style="font-size:13px">บาท</small></div>
+            <span class="small muted">ตั้งต้น ${fmtNum(ob.amount)} (${fmtDate(ob.date)}) + รายรับ − รายจ่ายหลังจากนั้น · รวมเงินสด/คนละครึ่ง</span></div>` : ""}
+          <div><span class="muted small" style="font-weight:600">ลงทุนไปทั้งหมด (12 เดือน)</span><div class="profit num">${fmtNum(allExp)} <small class="muted" style="font-size:13px">บาท</small></div></div>
+          <div><span class="muted small" style="font-weight:600">ขายได้ทั้งหมด (12 เดือน)</span><div class="profit num">${fmtNum(allRev)} <small class="muted" style="font-size:13px">บาท</small></div></div>
+          <div><span class="muted small" style="font-weight:600">${allRev - allExp >= 0 ? "กำไรสะสม" : "ยังต้องขายอีกเพื่อคืนทุน"}</span><div class="profit num ${allRev - allExp < 0 ? "neg" : ""}">${fmtNum(Math.abs(allRev - allExp))} <small class="muted" style="font-size:13px">บาท</small></div></div>
+        </div>
+      </section>
       <div class="period">${periods.map((p) => `
         <div class="card">
           <span class="muted small" style="font-weight:600">${p.label}</span>

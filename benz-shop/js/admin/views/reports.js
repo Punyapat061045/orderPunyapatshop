@@ -15,6 +15,8 @@ const orderRow = (o) => ({
   "สั่งเมื่อ": `${o.dateKey} ${fmtTime(o.createdAt)}`,
   "รายการ": o.items.map((i) => `${i.name}${i.options?.length ? ` (${i.options.map((x) => x.name).join(", ")})` : ""} x${i.qty}${i.forName ? ` [${i.forName}]` : ""}`).join(" | "),
   "จำนวนชิ้น": o.itemCount || o.items.reduce((s, i) => s + i.qty, 0), "ยอดรวม (บาท)": o.total, "สถานะ": STATUS[o.status]?.label || o.status,
+  "ยอดอาหาร (บาท)": o.subtotal ?? o.total, "ส่วนลด (บาท)": o.discount || 0, "โค้ด": o.couponCode || "",
+  "ถุง": o.bag === true ? "ใส่" : o.bag === false ? "ไม่ใส่" : "", "ช้อนส้อม": o.cutlery === true ? "รับ" : o.cutlery === false ? "ไม่รับ" : "", "โต๊ะ": o.deskNote || "",
   "การชำระเงิน": PAY[o.paymentStatus || "unpaid"]?.label || "", "วิธีจ่าย": PAY_METHOD[o.paymentMethod] || "", "ที่มา": o.source === "admin" ? "ร้านเพิ่มเอง" : "ลูกค้าสั่งเว็บ",
 });
 function productSummary(orders) {

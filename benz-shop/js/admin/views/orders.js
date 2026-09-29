@@ -18,6 +18,7 @@ export function bindQuick(root) {
   });
 }
 
+export const extrasText = (o) => [o.bag === true ? "ใส่ถุง" : o.bag === false ? "ไม่ใส่ถุง" : "", o.cutlery === true ? "รับช้อนส้อม" : o.cutlery === false ? "ไม่รับช้อนส้อม" : "", o.deskNote ? `โต๊ะ: ${o.deskNote}` : "", o.hasDeskPhoto ? "มีรูปโต๊ะ" : ""].filter(Boolean).join(" · ");
 export const payPill = (o) => o.paymentStatus ? `<span class="pill ${PAY[o.paymentStatus]?.cls || ""}">${PAY[o.paymentStatus]?.label || o.paymentStatus}</span>` : `<span class="pill warn">ยังไม่จ่าย</span>`;
 export const itemText = (i) => `${i.name}${i.options?.length ? ` (${i.options.map((x) => x.name).join(", ")})` : ""} ×${i.qty}${i.forName ? ` [${i.forName}]` : ""}${i.note ? ` *${i.note}` : ""}`;
 
@@ -108,7 +109,7 @@ export default {
               <td class="r"><b>${baht(o.total)}</b></td>
               <td><select class="status-sel pay-${payOf(o)}" data-psel="${o.id}" aria-label="การชำระเงิน #${esc(o.orderNo)}">
                 ${Object.entries(PAY).map(([k, v]) => `<option value="${k}" ${k === payOf(o) ? "selected" : ""}>${v.label}</option>`).join("")}
-              </select></td>
+              </select>${o.paymentMethod ? `<br><span class="muted small">${esc(PAY_METHOD[o.paymentMethod] || "")}</span>` : ""}</td>
               <td><select class="status-sel s-${o.status}" data-sel="${o.id}" aria-label="สถานะออเดอร์ #${esc(o.orderNo)}">
                 ${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${k === o.status ? "selected" : ""}>${v.label}</option>`).join("")}
               </select></td>
@@ -149,7 +150,7 @@ export async function openOrder(id) {
     o = { id: s.id, ...s.data() };
   }
   const exp = expectedTotal(o);
-  const mismatch = exp !== null && Math.abs(exp - o.total) > 0.001;
+  const mismatch = exp !== null && Math.abs(exp - (o.subtotal ?? o.total)) > 0.001;
   const m = openModal(`
     <div class="modal-head">
       <div class="grow"><h3>ออเดอร์ #${esc(o.orderNo)}</h3><p class="muted small">สั่งเมื่อ ${fmtDateTime(o.createdAt)}</p></div>
@@ -162,15 +163,18 @@ export async function openOrder(id) {
       ${o.deliveryDate ? `<div class="kv"><span>วันที่ส่ง</span><b>${esc(fmtDelivery(o.deliveryDate))}</b></div>` : ""}
       ${o.deliveryPoint ? `<div class="kv"><span>ส่งที่</span><b style="text-align:right">${esc(o.deliveryPoint)}</b></div>` : ""}
       <div class="kv"><span>สต็อก</span><span>${o.stockDeducted ? "ตัดสต็อกแล้ว" : "ยังไม่ตัด (ตัดเมื่อสถานะ สำเร็จ)"}</span></div>
-      ${o.source === "admin" ? `<div class="kv"><span>ที่มา</span><span>ร้านเพิ่มเอง</span></div>` : ""}
+      ${o.source === "admin" ? `<div class="kv"><span>ที่มา</span><span>ร้านเพิ่มเอง</span></div>` : o.source === "history" ? `<div class="kv"><span>ที่มา</span><span>บันทึกย้อนหลัง (ก่อนเข้าระบบ)</span></div>` : ""}
+      ${extrasText(o) ? `<div class="kv"><span>ถุง / ช้อนส้อม / โต๊ะ</span><b style="text-align:right">${esc(extrasText(o))}</b></div>` : ""}
+      ${o.hasDeskPhoto ? `<div id="deskBox"><div class="spinner" style="margin:10px auto"></div></div>` : ""}
     </div>
     <div class="box" style="margin-top:14px">
       <div class="row between"><b>การชำระเงิน</b>${payPill(o)}</div>
       <div class="kv"><span>วิธีจ่าย</span><span>${esc(PAY_METHOD[o.paymentMethod] || "–")}</span></div>
       <div id="slipBox">${o.paymentStatus === "slip" || o.slipAt ? `<div class="spinner" style="margin:10px auto"></div>` : ""}</div>
       <div class="row">
-        ${o.paymentStatus !== "paid" ? `<button class="btn primary sm" data-pay="paid:${o.paymentMethod === "cash" ? "cash" : "transfer"}">${I.check} ยืนยันรับเงินแล้ว</button>
-          <button class="btn sm" data-pay="paid:cash">รับเงินสดแล้ว</button>` : ""}
+        ${o.paymentStatus !== "paid" ? `<button class="btn primary sm" data-pay="paid:${["cash", "halfhalf", "transfer"].includes(o.paymentMethod) ? o.paymentMethod : "transfer"}">${I.check} ยืนยันรับเงินแล้ว</button>
+          ${o.paymentMethod !== "cash" ? `<button class="btn sm" data-pay="paid:cash">รับเป็นเงินสด</button>` : ""}
+          ${o.paymentMethod !== "halfhalf" ? `<button class="btn sm" data-pay="paid:halfhalf">รับผ่านคนละครึ่ง</button>` : ""}` : ""}
         ${o.paymentStatus !== "unpaid" ? `<button class="btn ghost sm" data-pay="unpaid:">${o.paymentStatus === "slip" ? "สลิปไม่ถูกต้อง / ยังไม่จ่าย" : "เปลี่ยนเป็นยังไม่จ่าย"}</button>` : ""}
         <label class="btn ghost sm">แนบสลิปแทนลูกค้า<input type="file" accept="image/*" id="adminSlip" hidden></label>
       </div>
@@ -180,6 +184,7 @@ export async function openOrder(id) {
         ${it.options?.length ? `<br><small class="muted">${esc(it.options.map((x) => `${x.group}: ${x.name}${x.price ? ` (+${x.price})` : ""}`).join(" · "))}</small>` : ""}
         ${it.note ? `<br><small style="color:var(--danger)">หมายเหตุ: ${esc(it.note)}</small>` : ""}</span>
         <b class="num">${baht(it.lineTotal)}</b></div>`).join("")}
+      ${o.discount ? `<div class="kv"><span>ยอดอาหาร</span><b class="num">${baht(o.subtotal)}</b></div><div class="kv"><span>ส่วนลด (${esc(o.couponCode || "")})</span><b class="num" style="color:var(--mint)">−${baht(o.discount)}</b></div>` : ""}
       <div class="sum-total"><span>ยอดรวม</span><span class="num">${baht(o.total)}</span></div>
       ${mismatch ? `<div class="banner warn small">${I.alert}<span class="grow">ยอดรวมไม่ตรงกับราคาเมนูปัจจุบัน (ควรเป็น ${baht(exp)}) อาจเพราะเปลี่ยนราคาหลังลูกค้าสั่ง กรุณาตรวจสอบก่อนรับเงิน</span></div>` : ""}
     </div>
@@ -199,6 +204,12 @@ export async function openOrder(id) {
     const [st, method] = b.dataset.pay.split(":");
     if (await changePayment(o.id, st, method || undefined)) m.close();
   });
+  const dbox = m.el.querySelector("#deskBox");
+  if (dbox) getDoc(doc(db, "deskPhotos", o.id)).then((sd) => {
+    dbox.innerHTML = sd.exists() ? `<a href="#" id="deskBig"><img src="${sd.data().image}" alt="รูปโต๊ะ" style="max-height:220px;border-radius:12px;margin:6px 0"></a>` : "";
+    const b = dbox.querySelector("#deskBig");
+    if (b) b.onclick = (e) => { e.preventDefault(); openModal(`<img src="${sd.data().image}" alt="รูปโต๊ะ" style="width:100%;border-radius:12px"><div class="modal-foot"><button class="btn primary" data-close>ปิด</button></div>`); };
+  }).catch(() => { dbox.innerHTML = ""; });
   const box = m.el.querySelector("#slipBox");
   if (box.innerHTML) {
     getDoc(doc(db, "slips", o.id)).then((sd) => {
@@ -237,8 +248,8 @@ export function printReceipt(o) {
     <div class="line"></div>
     <table>${o.items.map((it) => `<tr><td>${esc(it.name)} ×${it.qty}${it.forName ? ` (${esc(it.forName)})` : ""}${it.options?.length ? `<br><small>${esc(it.options.map((x) => x.name).join(", "))}</small>` : ""}</td><td class="r">${baht(it.lineTotal, false)}</td></tr>`).join("")}</table>
     <div class="line"></div>
-    <table><tr><td><b>รวมทั้งสิ้น</b></td><td class="r"><b>${baht(o.total)}</b></td></tr>
-      <tr><td>การชำระเงิน</td><td class="r">${esc(PAY[o.paymentStatus || "unpaid"]?.label || "")}</td></tr></table>
+    <table>${o.discount ? `<tr><td>ส่วนลด ${esc(o.couponCode || "")}</td><td class="r">-${baht(o.discount, false)}</td></tr>` : ""}<tr><td><b>รวมทั้งสิ้น</b></td><td class="r"><b>${baht(o.total)}</b></td></tr>
+      <tr><td>การชำระเงิน</td><td class="r">${esc(PAY[o.paymentStatus || "unpaid"]?.label || "")}${o.paymentMethod ? ` (${esc(PAY_METHOD[o.paymentMethod] || "")})` : ""}</td></tr></table>
     <div class="line"></div>
     <div style="text-align:center">ขอบคุณที่อุดหนุนค่ะ</div>
   </div>`);
@@ -264,6 +275,9 @@ export function openNewOrder(defaultDate) {
         <label class="field">วันที่ส่ง * <input class="input" type="date" id="n-date" value="${esc(keep.date || defaultDate)}"></label>
         <label class="field">ส่งที่ * <input class="input" id="n-point" maxlength="80" list="n-points" value="${esc(keep.point || "")}">
           <datalist id="n-points">${(A.settings.deliveryPoints || []).map((p) => `<option value="${esc(p)}">`).join("")}</datalist></label>
+        <label class="field">ถุงหูหิ้ว <select class="input" id="n-bag"><option value="1">ใส่ถุง</option><option value="0" ${keep.bag === "0" ? "selected" : ""}>ไม่ใส่ถุง</option></select></label>
+        <label class="field">ช้อนส้อม <select class="input" id="n-cut"><option value="1">รับช้อนส้อม</option><option value="0" ${keep.cut === "0" ? "selected" : ""}>ไม่รับ</option></select></label>
+        <label class="field">โต๊ะ (ถ้ามี) <input class="input" id="n-desk" maxlength="80" value="${esc(keep.desk || "")}"></label>
       </div>
       <div class="box" style="margin-top:16px">
         <b>รายการอาหาร</b>
@@ -282,7 +296,7 @@ export function openNewOrder(defaultDate) {
         <b>การชำระเงิน</b>
         <div class="form-grid">
           <label class="field">สถานะ <select class="input" id="n-pay"><option value="unpaid">ยังไม่จ่าย</option><option value="paid" ${keep.pay === "paid" ? "selected" : ""}>จ่ายแล้ว</option></select></label>
-          <label class="field">วิธีจ่าย <select class="input" id="n-method"><option value="cash">เงินสด</option><option value="transfer" ${keep.method === "transfer" ? "selected" : ""}>โอนเงิน</option></select></label>
+          <label class="field">วิธีจ่าย <select class="input" id="n-method"><option value="cash">เงินสด</option><option value="transfer" ${keep.method === "transfer" ? "selected" : ""}>โอนเงิน</option><option value="halfhalf" ${keep.method === "halfhalf" ? "selected" : ""}>คนละครึ่ง</option></select></label>
           <label class="field">แนบสลิป (ถ้ามี) <input type="file" accept="image/*" id="n-slip" class="input"></label>
         </div>
         ${slip ? `<img src="${slip}" alt="สลิป" style="max-height:160px;border-radius:10px">` : ""}
@@ -292,7 +306,8 @@ export function openNewOrder(defaultDate) {
     ps.onchange = () => { root.querySelector("#n-opts").innerHTML = optsFor(prods.find((p) => p.id === ps.value)); };
   };
   const snapshotForm = () => ({ name: root.querySelector("#n-name").value, phone: root.querySelector("#n-phone").value, date: root.querySelector("#n-date").value,
-    point: root.querySelector("#n-point").value, pay: root.querySelector("#n-pay").value, method: root.querySelector("#n-method").value });
+    point: root.querySelector("#n-point").value, pay: root.querySelector("#n-pay").value, method: root.querySelector("#n-method").value,
+    bag: root.querySelector("#n-bag").value, cut: root.querySelector("#n-cut").value, desk: root.querySelector("#n-desk").value });
   root.addEventListener("click", async (e) => {
     const b = e.target.closest("button"); if (!b) return;
     if (b.id === "n-add") {
@@ -327,6 +342,7 @@ export function openNewOrder(defaultDate) {
             itemCount: lines.reduce((s, l) => s + l.qty, 0), total: total(), status: "pending", seq, orderNo: String(seq).padStart(3, "0"),
             dateKey: dateKey(), createdAt: serverTimestamp(), updatedAt: serverTimestamp(), stockDeducted: false, revenueCounted: false, note: "",
             paymentStatus: f.pay, paymentMethod: f.method, source: "admin", createdBy: A.email,
+            subtotal: total(), discount: 0, bag: f.bag === "1", cutlery: f.cut === "1", deskNote: (f.desk || "").trim().slice(0, 80), hasDeskPhoto: false,
             ...(f.pay === "paid" ? { paidAt: serverTimestamp(), paidBy: A.email } : {}), ...(slip ? { slipAt: serverTimestamp() } : {}),
           });
         });

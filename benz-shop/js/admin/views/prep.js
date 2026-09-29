@@ -3,7 +3,7 @@ import { A, ingredientUsage, invById, liveFromKey } from "../state.js";
 import { db, collection, query, where, getDocs } from "../../fb.js";
 import { STATUS, esc, baht, fmtNum, dateKey, addDays, fmtDelivery, toast } from "../../common.js";
 import { I, printHtml } from "../ui.js";
-import { quickStatusButtons, bindQuick, openOrder, changeStatus, payPill, itemText, openNewOrder } from "./orders.js";
+import { quickStatusButtons, bindQuick, openOrder, changeStatus, payPill, itemText, openNewOrder, extrasText } from "./orders.js";
 import { emit } from "../state.js";
 
 const V = { date: dateKey(addDays(new Date(), 1)), fetched: {} };
@@ -43,6 +43,7 @@ export default {
     const money = active.reduce((s, o) => s + o.total, 0);
     const paid = active.filter((o) => o.paymentStatus === "paid").reduce((s, o) => s + o.total, 0);
     const slipWait = active.filter((o) => o.paymentStatus === "slip").length;
+    const bags = active.filter((o) => o.bag === true).length, cutl = active.filter((o) => o.cutlery === true).length;
     const counts = Object.fromEntries(Object.keys(STATUS).map((s) => [s, active.filter((o) => o.status === s).length]));
 
     el.innerHTML = `
@@ -69,7 +70,7 @@ export default {
       </div>
       <div class="grid-2e">
         <section class="card">
-          <div class="card-head"><h3 class="card-title">ต้องทำทั้งหมด</h3></div>
+          <div class="card-head"><h3 class="card-title">ต้องทำทั้งหมด</h3><span class="muted small">ถุงหูหิ้ว ${bags} ใบ · ช้อนส้อม ${cutl} ชุด</span></div>
           <div class="list">${Object.entries(prodTotals).map(([n, q]) => `
             <div class="list-item" style="align-items:flex-start"><div class="grow"><b>${esc(n)}</b>
               ${Object.values(lines).filter((l) => l.name === n).map((l) => `<div class="row between small"><span class="muted">${esc(l.opt || "ปกติ")}</span><b class="num">${fmtNum(l.qty)}</b></div>`).join("")}</div>
@@ -90,7 +91,8 @@ export default {
             <div class="list-item">
               <button class="btn ghost sm o-no" data-open="${o.id}">#${esc(o.orderNo)}</button>
               <div class="grow"><b>${esc(o.customerName)}</b>${o.phone ? ` <span class="muted small">${esc(o.phone)}</span>` : ""}<br>
-                <span class="small muted">${esc(o.items.map(itemText).join(", "))}</span></div>
+                <span class="small muted">${esc(o.items.map(itemText).join(", "))}</span>
+                ${extrasText(o) ? `<br><span class="small" style="color:var(--sky)">${esc(extrasText(o))}</span>` : ""}</div>
               <b class="num">${baht(o.total)}</b>
               ${payPill(o)}
               <span class="pill s-${o.status}">${STATUS[o.status].label}</span>
@@ -113,14 +115,14 @@ export default {
     const ps = el.querySelector("#printSheet");
     if (ps) ps.onclick = () => printHtml(`<div class="print-report">
       <h1>${esc(A.settings.shopName)} — ใบจัดส่ง ${esc(fmtDelivery(V.date))}</h1>
-      <p>${active.length} ออเดอร์ · ยอดรวม ${baht(money)} · ต้องเก็บเงินเพิ่ม ${baht(money - paid)}</p>
+      <p>${active.length} ออเดอร์ · ยอดรวม ${baht(money)} · ต้องเก็บเงินเพิ่ม ${baht(money - paid)} · ถุงหูหิ้ว ${bags} ใบ · ช้อนส้อม ${cutl} ชุด</p>
       <h3>ต้องทำทั้งหมด</h3>
       <table><tr><th>เมนู</th><th>ตัวเลือก</th><th class="r">จำนวน</th></tr>
         ${Object.values(lines).map((l) => `<tr><td>${esc(l.name)}</td><td>${esc(l.opt)}</td><td class="r">${fmtNum(l.qty)}</td></tr>`).join("")}</table>
       ${Object.entries(byPoint).map(([pt, list]) => `<h3>ส่งที่: ${esc(pt)}</h3>
-        <table><tr><th>✓</th><th>#</th><th>ลูกค้า</th><th>รายการ</th><th class="r">ยอด</th><th>เงิน</th></tr>
+        <table><tr><th>✓</th><th>#</th><th>ลูกค้า</th><th>รายการ</th><th>ถุง/ช้อน/โต๊ะ</th><th class="r">ยอด</th><th>เงิน</th></tr>
         ${list.map((o) => `<tr><td style="width:18px">☐</td><td>${esc(o.orderNo)}</td><td>${esc(o.customerName)}${o.phone ? `<br>${esc(o.phone)}` : ""}</td>
-          <td>${esc(o.items.map(itemText).join(", "))}</td><td class="r">${fmtNum(o.total)}</td><td>${o.paymentStatus === "paid" ? "จ่ายแล้ว" : "<b>เก็บเงิน</b>"}</td></tr>`).join("")}</table>`).join("")}
+          <td>${esc(o.items.map(itemText).join(", "))}</td><td>${esc(extrasText(o))}</td><td class="r">${fmtNum(o.total)}</td><td>${o.paymentStatus === "paid" ? "จ่ายแล้ว" : "<b>เก็บเงิน</b>"}</td></tr>`).join("")}</table>`).join("")}
     </div>`);
   },
 };

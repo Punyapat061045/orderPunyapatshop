@@ -43,6 +43,23 @@ service cloud.firestore {
             && get(settingsPath()).data.get('payQr', '') == '');
     }
     function slipPath(orderId) { return /databases/$(database)/documents/slips/$(orderId); }
+    function couponPath(code) { return /databases/$(database)/documents/coupons/$(code); }
+    function methodAllowed(key) {
+      return !exists(settingsPath()) || get(settingsPath()).data.get(key, true) != false;
+    }
+    // ส่วนลดต้องมาจากโค้ดที่เปิดใช้อยู่ และยอดรวม = ยอดอาหาร − ส่วนลด
+    function validDiscount() {
+      let d = request.resource.data;
+      let disc = d.get('discount', 0);
+      return disc == 0 || (
+        d.couponCode is string && exists(couponPath(d.couponCode))
+        && get(couponPath(d.couponCode)).data.get('active', true) == true
+        && disc > 0
+        && disc <= (get(couponPath(d.couponCode)).data.get('type', 'amount') == 'percent'
+                     ? d.subtotal * get(couponPath(d.couponCode)).data.value / 100 + 1
+                     : get(couponPath(d.couponCode)).data.value)
+        && d.total == d.subtotal - disc);
+    }
     function orderPath(orderId) { return /databases/$(database)/documents/orders/$(orderId); }
 
     // ตรวจออเดอร์ใหม่จากลูกค้า (ลูกค้าไม่ต้องล็อกอิน)
@@ -50,6 +67,8 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.keys().hasOnly(['customerName', 'phone', 'deliveryDate', 'deliveryPoint',
                                'paymentStatus', 'paymentMethod', 'slipAt', 'source',
+                               'subtotal', 'discount', 'couponCode',
+                               'bag', 'cutlery', 'deskNote', 'hasDeskPhoto',
                                'items', 'itemCount', 'total',
                                'status', 'seq', 'orderNo', 'dateKey', 'createdAt',
                                'updatedAt', 'stockDeducted', 'revenueCounted', 'note'])
@@ -73,7 +92,11 @@ service cloud.firestore {
         && d.get('revenueCounted', false) == false
         && d.get('source', 'web') == 'web'
         && ((d.paymentStatus == 'slip' && d.paymentMethod == 'transfer' && existsAfter(slipPath(orderId)))
+            || (d.paymentStatus == 'unpaid' && d.paymentMethod == 'cash' && methodAllowed('payCash'))
+            || (d.paymentStatus == 'unpaid' && d.paymentMethod == 'halfhalf' && methodAllowed('payHalf'))
             || (d.paymentStatus == 'unpaid' && d.paymentMethod == 'later' && payLaterAllowed()))
+        && d.get('deskNote', '') is string && d.get('deskNote', '').size() <= 80
+        && validDiscount()
         && orderingOpen();
     }
 
@@ -121,6 +144,23 @@ service cloud.firestore {
       allow create: if isStaff() || validNewOrder(orderId);   // พนักงานเพิ่มออเดอร์เองได้
       allow update: if isStaff() || validSlipUpdate(orderId);
       allow delete: if isOwner();
+    }
+
+    // ---------- โค้ดส่วนลด (ลูกค้าเช็กโค้ดได้ทีละโค้ด แต่ดูรายการทั้งหมดไม่ได้) ----------
+    match /coupons/{code} {
+      allow get: if true;
+      allow list: if isStaff();
+      allow write: if isOwner();
+    }
+
+    // ---------- รูปโต๊ะที่ลูกค้าแนบ (ดูได้เฉพาะพนักงาน) ----------
+    match /deskPhotos/{orderId} {
+      allow read, delete: if isStaff();
+      allow create: if request.resource.data.keys().hasOnly(['image', 'createdAt'])
+        && request.resource.data.image is string
+        && request.resource.data.image.size() < 1000000
+        && request.resource.data.createdAt == request.time
+        && (isStaff() || getAfter(orderPath(orderId)).data.get('hasDeskPhoto', false) == true);
     }
 
     // ---------- สลิปโอนเงิน (ลูกค้าส่งได้ แต่ดูได้เฉพาะพนักงาน) ----------
